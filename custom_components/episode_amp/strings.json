@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Episode hybrid amplifier",
+        "description": "Address and control port of the amplifier. The setup reads the volume before saving, so a wrong port is caught here.",
+        "data": {
+          "host": "IP address",
+          "port": "Control port (usually 23)",
+          "mode": "Command format (auto tries hex text, then raw bytes)",
+          "name": "Name"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "The amplifier did not answer on that address and port."
+    },
+    "abort": {
+      "already_configured": "This amplifier is already set up."
+    }
+  }
+}
