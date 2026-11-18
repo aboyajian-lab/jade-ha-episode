@@ -124,10 +124,27 @@ def mentions(data: bytes, *words: str) -> bool:
     return any(w in low for w in words)
 
 
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _tail(data: bytes) -> str:
+    text = _ANSI.sub("", strip_telnet(data).decode("ascii", "ignore"))
+    return text.lower().rstrip(" *\r\n\t\x00\xff")
+
+
+def tail_prompt(data: bytes) -> str | None:
+    """'login' or 'password' when the text ends on that prompt, else None."""
+    low = _tail(data)
+    if low.endswith(("password:", "password")):
+        return "password"
+    if low.endswith(("login:", "login", "username:", "user name:", "user:")):
+        return "login"
+    return None
+
+
 def prompting(data: bytes) -> bool:
-    """True when the text ends on a password prompt (asking, not reporting)."""
-    low = strip_telnet(data).decode("ascii", "ignore").lower().rstrip(" *\r\n\t\x00")
-    return low.endswith("password:") or low.endswith("password")
+    """True when the text ends on a login or password prompt (asking, not reporting)."""
+    return tail_prompt(data) is not None
 
 
 def rejected(data: bytes) -> bool:

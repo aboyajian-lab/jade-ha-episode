@@ -1,7 +1,7 @@
 {
   "domain": "episode_amp",
   "name": "Episode Hybrid Amplifier",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "documentation": "https://github.com/aboyajian-lab/jade-ha-episode",
   "issue_tracker": "https://github.com/aboyajian-lab/jade-ha-episode/issues",
   "codeowners": [],

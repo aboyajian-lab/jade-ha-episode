@@ -5,7 +5,7 @@ import logging
 from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, Platform
+from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -40,6 +40,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.data.get(CONF_PORT, DEFAULT_PORT),
         entry.data.get(CONF_MODE, MODE_AUTO),
         entry.data.get(CONF_PASSWORD),
+        entry.data.get(CONF_USERNAME),
     )
     coordinator = EpisodeCoordinator(hass, entry, client)
     await coordinator.async_config_entry_first_refresh()

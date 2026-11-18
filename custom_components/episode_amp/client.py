@@ -33,11 +33,14 @@ class AmpState:
 class EpisodeClient:
     """Opens a short TCP connection per command (the amp is polled, not streamed)."""
 
-    def __init__(self, host: str, port: int, mode: str = MODE_AUTO, password: str | None = None) -> None:
+    def __init__(
+        self, host: str, port: int, mode: str = MODE_AUTO, password: str | None = None, username: str | None = None
+    ) -> None:
         self.host = host
         self.port = port
         self.mode = mode
         self.password = password or None
+        self.username = (username or "").strip() or None
         self._lock = asyncio.Lock()
 
     @staticmethod
@@ -57,37 +60,51 @@ class EpisodeClient:
             if not chunk:
                 break
             data.extend(chunk)
-            answer = p.telnet_refusals(chunk)
-            if answer:
-                writer.write(answer)
-                await writer.drain()
+            # Telnet option requests are left unanswered on purpose: answering puts extra
+            # bytes in front of the user name / password on simple embedded servers.
             if until and p.mentions(bytes(data), *until):
                 break
         return bytes(data)
 
     async def _login(self, reader, writer) -> None:
-        """Handle the amp's telnet password prompt, if it shows one."""
-        greeting = await self._read(reader, writer, 1.0, idle=0.6, until=("password",))
-        if not p.mentions(greeting, "password"):
-            # Some firmware only shows the prompt after the client sends something.
-            writer.write(b"\r\n")
+        """Answer the amp's telnet Login:/Password: prompts, if it shows them."""
+        prompts = ("login", "user", "password")
+        buf = await self._read(reader, writer, 1.0, idle=0.6, until=prompts)
+        if p.tail_prompt(buf) is None and not p.mentions(buf, *prompts):
+            # Some firmware stays silent until it gets a line; make that line the user name.
+            writer.write((self.username or "").encode("utf-8") + b"\r\n")
             await writer.drain()
-            greeting += await self._read(reader, writer, 1.5, idle=0.6, until=("password",))
-        if not p.mentions(greeting, "password"):
-            return
-        if not self.password:
-            raise EpisodeAuthError("the amplifier asks for a password")
-        writer.write(self.password.encode("utf-8") + b"\r\n")
-        await writer.drain()
-        after = await self._read(reader, writer, 1.5, idle=0.6)
-        _LOGGER.debug("login prompt %r, answer %r", self._mask(greeting), self._mask(after))
-        if p.rejected(after):
-            raise EpisodeAuthError("the amplifier rejected the password")
+            buf += await self._read(reader, writer, 1.5, idle=0.6, until=prompts)
+        for _ in range(3):
+            kind = p.tail_prompt(buf)
+            if kind == "login":
+                if not self.username:
+                    raise EpisodeAuthError("the amplifier asks for a user name")
+                writer.write(self.username.encode("utf-8") + b"\r\n")
+                await writer.drain()
+                buf += await self._read(reader, writer, 1.5, idle=0.6, until=("password", "denied"))
+                continue
+            if kind == "password":
+                if not self.password:
+                    raise EpisodeAuthError("the amplifier asks for a password")
+                writer.write(self.password.encode("utf-8") + b"\r\n")
+                await writer.drain()
+                after = await self._read(reader, writer, 1.5, idle=0.6)
+                _LOGGER.debug("login prompt %r, answer %r", self._mask(buf), self._mask(after))
+                if p.rejected(after):
+                    raise EpisodeAuthError("the amplifier rejected the user name or password")
+                return
+            break
+        _LOGGER.debug("no login needed, greeting %r", self._mask(buf))
+        if p.mentions(buf, "denied"):
+            raise EpisodeAuthError("the amplifier refused the login")
 
     def _mask(self, data: bytes) -> bytes:
         data = data[:200]
         if self.password:
             data = data.replace(self.password.encode("utf-8"), b"***")
+        if self.username:
+            data = data.replace(self.username.encode("utf-8"), b"<user>")
         return data
 
     async def _exchange(self, payload: bytes, mode: str) -> bytes:
