@@ -15,5 +15,5 @@ Episode's control sheet: frames `FE <function> <length> <params…> <checksum>`,
 ## Install without host access
 1. Add the built-in **Downloader** integration with folder `custom_components`.
 2. Call `downloader.download_file` for each file in `custom_components/episode_amp/` with `subdir: episode_amp` (and `episode_amp/translations` for `en.json`).
-3. Restart Home Assistant, then add **Episode Hybrid Amplifier** (IP, port 23). Setup reads the volume before saving, so a wrong port is caught.
+3. Restart Home Assistant, then add **Episode Hybrid Amplifier**: IP, port 23, and the same user name and password as the amp's web page (its telnet server asks "Login:" then "Password:"). Setup logs in and reads the volume before saving, so a wrong port or login is caught.
 4. Remove Downloader.
