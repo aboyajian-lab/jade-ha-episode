@@ -7,6 +7,8 @@ hex text, e.g. "FE C2 04 C4"; raw bytes are supported as a fallback.
 """
 from __future__ import annotations
 
+import re
+
 HEADER = 0xFE
 ACK = 0x06
 NACK = 0x15
@@ -84,20 +86,42 @@ def strip_telnet(data: bytes) -> bytes:
     return bytes(out)
 
 
+_TOKEN = re.compile(rb"(?<![0-9A-Za-z])[0-9A-Fa-f]{2}(?![0-9A-Za-z])")
+
+
 def decode_reply(data: bytes) -> bytes:
-    """Turn a reply (hex text or raw bytes) into raw bytes."""
+    """Turn a reply (hex text, possibly with prompts around it, or raw bytes) into raw bytes."""
     if not data:
         return b""
     cleaned = strip_telnet(data)
     try:
         text = cleaned.decode("ascii")
     except UnicodeDecodeError:
-        text = None
-    if text is not None and text.strip() and set(text) <= _HEX:
+        return data
+    if text.strip() and set(text) <= _HEX:
         tokens = text.split()
         if all(len(t) % 2 == 0 for t in tokens):
             return bytes.fromhex("".join(tokens))
+    tokens = _TOKEN.findall(cleaned)
+    if tokens:
+        return bytes.fromhex(b"".join(tokens).decode("ascii"))
     return data
+
+
+def telnet_refusals(data: bytes) -> bytes:
+    """Answer every IAC DO with WONT and every IAC WILL with DONT."""
+    out = bytearray()
+    for i in range(len(data) - 2):
+        if data[i] == 0xFF and data[i + 1] == 0xFD:
+            out += bytes([0xFF, 0xFC, data[i + 2]])
+        elif data[i] == 0xFF and data[i + 1] == 0xFB:
+            out += bytes([0xFF, 0xFE, data[i + 2]])
+    return bytes(out)
+
+
+def mentions(data: bytes, *words: str) -> bool:
+    low = strip_telnet(data).decode("ascii", "ignore").lower()
+    return any(w in low for w in words)
 
 
 def find_frame(data: bytes, function: int) -> bytes | None:

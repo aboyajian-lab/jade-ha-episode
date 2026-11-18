@@ -19,6 +19,10 @@ class EpisodeError(Exception):
     """Raised when the amplifier cannot be reached or does not answer."""
 
 
+class EpisodeAuthError(EpisodeError):
+    """Raised when the amplifier asks for a password and the one given is missing or wrong."""
+
+
 @dataclass
 class AmpState:
     volume_db: dict[int, float] = field(default_factory=dict)
@@ -29,11 +33,50 @@ class AmpState:
 class EpisodeClient:
     """Opens a short TCP connection per command (the amp is polled, not streamed)."""
 
-    def __init__(self, host: str, port: int, mode: str = MODE_AUTO) -> None:
+    def __init__(self, host: str, port: int, mode: str = MODE_AUTO, password: str | None = None) -> None:
         self.host = host
         self.port = port
         self.mode = mode
+        self.password = password or None
         self._lock = asyncio.Lock()
+
+    @staticmethod
+    async def _read(reader, writer, total: float, idle: float = IDLE_READ, until: tuple[str, ...] = ()) -> bytes:
+        """Read until `total` seconds pass, the line goes quiet for `idle`, or a word in `until` appears."""
+        data = bytearray()
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + total
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                break
+            try:
+                chunk = await asyncio.wait_for(reader.read(256), min(remaining, idle) if data else remaining)
+            except asyncio.TimeoutError:
+                break
+            if not chunk:
+                break
+            data.extend(chunk)
+            answer = p.telnet_refusals(chunk)
+            if answer:
+                writer.write(answer)
+                await writer.drain()
+            if until and p.mentions(bytes(data), *until):
+                break
+        return bytes(data)
+
+    async def _login(self, reader, writer) -> None:
+        """Handle the amp's telnet password prompt, if it shows one."""
+        greeting = await self._read(reader, writer, 1.5, idle=0.6, until=("password",))
+        if not p.mentions(greeting, "password"):
+            return
+        if not self.password:
+            raise EpisodeAuthError("the amplifier asks for a password")
+        writer.write(self.password.encode("utf-8") + b"\r\n")
+        await writer.drain()
+        after = await self._read(reader, writer, 1.5, idle=0.6)
+        if p.mentions(after, "password", "incorrect", "invalid", "denied", "fail", "wrong"):
+            raise EpisodeAuthError("the amplifier rejected the password")
 
     async def _exchange(self, payload: bytes, mode: str) -> bytes:
         try:
@@ -43,29 +86,12 @@ class EpisodeClient:
         except (OSError, asyncio.TimeoutError) as err:
             raise EpisodeError(f"cannot connect to {self.host}:{self.port}: {err}") from err
         try:
-            # Let any banner or telnet negotiation arrive and discard it.
-            try:
-                await asyncio.wait_for(reader.read(256), IDLE_READ)
-            except asyncio.TimeoutError:
-                pass
+            await self._login(reader, writer)
             writer.write(p.to_text(payload) if mode == MODE_TEXT else payload)
             await writer.drain()
-            data = bytearray()
-            deadline = asyncio.get_running_loop().time() + REPLY_TIMEOUT
-            while True:
-                remaining = deadline - asyncio.get_running_loop().time()
-                if remaining <= 0:
-                    break
-                try:
-                    chunk = await asyncio.wait_for(
-                        reader.read(256), min(remaining, IDLE_READ if data else remaining)
-                    )
-                except asyncio.TimeoutError:
-                    break
-                if not chunk:
-                    break
-                data.extend(chunk)
-            return p.decode_reply(bytes(data))
+            data = await self._read(reader, writer, REPLY_TIMEOUT)
+            _LOGGER.debug("%s raw reply %r", mode, data[:120])
+            return p.decode_reply(data)
         finally:
             writer.close()
             try:
@@ -79,7 +105,10 @@ class EpisodeClient:
             modes = [self.mode] if self.mode != MODE_AUTO else [MODE_TEXT, MODE_RAW]
             last = b""
             for mode in modes:
-                reply = await self._exchange(payload, mode)
+                try:
+                    reply = await self._exchange(payload, mode)
+                except EpisodeAuthError:
+                    raise
                 _LOGGER.debug("%s %s -> %s", mode, payload.hex(" "), reply.hex(" "))
                 if accept(reply):
                     if self.mode == MODE_AUTO:
