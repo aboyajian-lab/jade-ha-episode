@@ -3,19 +3,20 @@
     "step": {
       "user": {
         "title": "Episode hybrid amplifier",
-        "description": "Address, control port and password of the amplifier. The setup logs in and reads the volume before saving, so a wrong port or password is caught here.",
+        "description": "Address, control port and login of the amplifier (the same user name and password as its web page). The setup logs in and reads the volume before saving, so a wrong port or login is caught here.",
         "data": {
           "host": "IP address",
           "port": "Control port (usually 23)",
+          "username": "Amplifier user name (from its web page login)",
+          "password": "Amplifier password (from its web page login)",
           "mode": "Command format (auto tries hex text, then raw bytes)",
-          "name": "Name",
-          "password": "Amplifier password (the one you use on its web page)"
+          "name": "Name"
         }
       }
     },
     "error": {
       "cannot_connect": "The amplifier did not answer on that address and port.",
-      "invalid_auth": "The amplifier asked for a password and did not accept the one given."
+      "invalid_auth": "The amplifier did not accept the user name and password. Use the same login as the amplifier's web page."
     },
     "abort": {
       "already_configured": "This amplifier is already set up."
