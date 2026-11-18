@@ -67,7 +67,12 @@ class EpisodeClient:
 
     async def _login(self, reader, writer) -> None:
         """Handle the amp's telnet password prompt, if it shows one."""
-        greeting = await self._read(reader, writer, 1.5, idle=0.6, until=("password",))
+        greeting = await self._read(reader, writer, 1.0, idle=0.6, until=("password",))
+        if not p.mentions(greeting, "password"):
+            # Some firmware only shows the prompt after the client sends something.
+            writer.write(b"\r\n")
+            await writer.drain()
+            greeting += await self._read(reader, writer, 1.5, idle=0.6, until=("password",))
         if not p.mentions(greeting, "password"):
             return
         if not self.password:
@@ -91,7 +96,11 @@ class EpisodeClient:
             await writer.drain()
             data = await self._read(reader, writer, REPLY_TIMEOUT)
             _LOGGER.debug("%s raw reply %r", mode, data[:120])
+            if p.mentions(data, "password"):
+                raise EpisodeAuthError("the amplifier asks for a password")
             return p.decode_reply(data)
+        except OSError as err:
+            raise EpisodeError(f"connection to {self.host}:{self.port} dropped: {err}") from err
         finally:
             writer.close()
             try:
