@@ -80,8 +80,15 @@ class EpisodeClient:
         writer.write(self.password.encode("utf-8") + b"\r\n")
         await writer.drain()
         after = await self._read(reader, writer, 1.5, idle=0.6)
-        if p.mentions(after, "password", "incorrect", "invalid", "denied", "fail", "wrong"):
+        _LOGGER.debug("login prompt %r, answer %r", self._mask(greeting), self._mask(after))
+        if p.rejected(after):
             raise EpisodeAuthError("the amplifier rejected the password")
+
+    def _mask(self, data: bytes) -> bytes:
+        data = data[:200]
+        if self.password:
+            data = data.replace(self.password.encode("utf-8"), b"***")
+        return data
 
     async def _exchange(self, payload: bytes, mode: str) -> bytes:
         try:
@@ -95,8 +102,8 @@ class EpisodeClient:
             writer.write(p.to_text(payload) if mode == MODE_TEXT else payload)
             await writer.drain()
             data = await self._read(reader, writer, REPLY_TIMEOUT)
-            _LOGGER.debug("%s raw reply %r", mode, data[:120])
-            if p.mentions(data, "password"):
+            _LOGGER.debug("%s raw reply %r", mode, self._mask(data[:120]))
+            if p.prompting(data):
                 raise EpisodeAuthError("the amplifier asks for a password")
             return p.decode_reply(data)
         except OSError as err:

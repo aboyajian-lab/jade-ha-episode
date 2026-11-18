@@ -124,6 +124,19 @@ def mentions(data: bytes, *words: str) -> bool:
     return any(w in low for w in words)
 
 
+def prompting(data: bytes) -> bool:
+    """True when the text ends on a password prompt (asking, not reporting)."""
+    low = strip_telnet(data).decode("ascii", "ignore").lower().rstrip(" *\r\n\t\x00")
+    return low.endswith("password:") or low.endswith("password")
+
+
+def rejected(data: bytes) -> bool:
+    """True when the amp's answer to a password says it was refused."""
+    if prompting(data):
+        return True
+    return mentions(data, "incorrect", "invalid", "denied", "fail", "wrong", "error", "bad pass")
+
+
 def find_frame(data: bytes, function: int) -> bytes | None:
     """Return the first complete, checksum-valid frame for `function` in data."""
     i = 0
